@@ -151,7 +151,7 @@ group by customer_id
    where order_date<join_date
    group by customer_id;
 
-   If each $1 spent equates to 10 points and sushi has a 2x points multiplier - how many points would each customer have?
+  --- If each $1 spent equates to 10 points and sushi has a 2x points multiplier - how many points would each customer have?
    
    select customer_id,
    sum(case when product_name = "sushi" then 10*2*price 
@@ -162,7 +162,7 @@ group by customer_id
    on m.product_id = s.product_id
    group by customer_id
    
-In the first week after a customer joins the program (including their join date) they earn 2x points on all items,
+--In the first week after a customer joins the program (including their join date) they earn 2x points on all items,
 not just sushi - how many points do customer A and B have at the end of January?
 
 
@@ -179,7 +179,7 @@ on s.product_id = c.product_id
 and month(order_date)=1
 group by customer_id;
 
-bonus Question 1
+--bonus Question 1
 
 select s.customer_id,s.order_date,m.product_name,m.price,
 case when order_date>= join_date then "Y" else "N" end as "Member" 
@@ -190,7 +190,7 @@ on s.product_id = m.product_id
 left join members m1 
 on s.customer_id = m1.customer_id;
 
-Bonus Question 2
+--Bonus Question 2
 with cte as(
 select s.customer_id,s.order_date,m.product_name,m.price,
 case when order_date>= join_date then "Y" else "N" end as "Member"
