@@ -1,0 +1,282 @@
+--Change over Time Analysis
+
+--Analyze Sales Performance Over Time
+
+Select 
+	Year(order_date) as 'Year',
+	Month(order_date) as 'Month',
+	Sum(sales_amount) as 'Total_Sales',
+	Count(Distinct customer_key) as 'Total_Customers',
+	Sum(quantity) as 'Total_Quantity'
+From 
+	gold.fact_sales
+Where 
+	Order_Date is not null
+Group By 
+	Year(order_date),Month(order_date) 
+Order By 
+	Year(order_date),Month(order_date);
+
+
+--Cumulative Analysis
+
+--Calculate the total sales per Year/Month and the running total sales over time and Moving Average price
+
+With Cte as 
+(select 
+	Year(order_date) as 'Year', 
+	Month(Order_Date) as 'Month',
+	Sum(Sales_Amount) as 'Total_Sales',
+	Avg(Price) as 'Avg_price'
+From 
+	gold.fact_sales
+Where 
+	Order_Date is not null
+Group By 
+	Year(order_date),
+	Month(Order_Date)
+)
+
+Select 
+	*,
+	Sum(Total_Sales) Over(Order by Year,Month) as 'Running_Total_Sales',
+	Avg(Avg_Price) Over(Order by Year,Month) as 'Moving_Average_Price'
+from 
+	Cte;
+
+
+--Performace Analysis
+--Year Over Year Analysis
+--Analyze the yearly performance of products by comparing each product's sales to both its average sales performance and the previous year's sales
+
+With Cte as 
+(Select
+	Year(Order_Date) as 'Year',
+	b.Product_Name,
+	Sum(Sales_Amount) as 'Total_Sales'
+From 
+	gold.fact_sales a
+Left Join 
+	gold.dim_products b 
+on 
+	a.product_key = b.product_key
+Where 
+	Order_Date is not null
+Group By
+	Year(Order_Date),
+	product_name
+)
+
+Select 
+	*,
+	Avg(Total_Sales) Over(Partition by Product_Name) as Avg_Sales,
+	Total_Sales - Avg(Total_Sales) Over(Partition by Product_Name) as Diff1,
+	Case When Total_Sales - Avg(Total_Sales) Over(Partition by Product_Name) < 0 Then 'Below Average'
+		 When Total_Sales - Avg(Total_Sales) Over(Partition by Product_Name) > 0 Then 'Above Average'
+		 Else 'Avg'
+	End as 'Flag1',
+	lag(Total_Sales) Over(Partition by Product_Name order by Year) as Previous_Year_Sales,
+	Total_Sales - lag(Total_Sales) Over(Partition by Product_Name order by Year) as Diff2,
+	Case When Total_Sales - lag(Total_Sales) Over(Partition by Product_Name order by Year) < 0 Then 'Below_Prev_Year_Sales'
+		 When Total_Sales - lag(Total_Sales) Over(Partition by Product_Name order by Year) > 0 Then 'Greater_Than_Prev_Year_Sales'
+		 Else 'Same_as_Last_year'
+	End as 'Flag2'
+From 
+	Cte
+Order by 
+	product_name,
+	Year;
+
+
+
+--Part to Whole Analysis
+
+--Which categories contribute the most to overall sales 
+
+Select 
+	*,
+	Sum(Total_Sales) Over() as 'Sales',
+	Concat(Round((Cast(Total_Sales as float)/Sum(Total_Sales) Over())*100,2),'%') as 'Per'
+From
+(
+Select 
+	Category,
+	Sum(Sales_Amount) as 'Total_Sales'
+From
+	gold.dim_products a
+Left Join 
+	gold.fact_sales b
+On 
+	a.product_key = b.product_key
+Where 
+	Sales_Amount is Not Null
+Group By
+	Category
+) a;
+
+
+
+--Data Segmentation
+
+--Segment products into cost ranges and count how many products fall into each segment
+
+
+With cte as 
+(select
+	Product_key,
+	product_name,
+	Cost,
+	Case When cost<100 then 'Below 100'
+		 when cost between 100 and 500 then '100-500'
+		 when cost between 501 and 1000 then '501-1000'
+		 else 'Above 1000'
+	End as 'Segment'
+from gold.dim_products
+)
+
+Select
+	Segment,
+	Count(Product_key) as Total_products
+from 
+	Cte 
+Group by 
+	Segment
+Order by 
+	Count(Product_key) desc;
+
+
+--Group Customers into three segments based on their spending behaviour:
+--VIP: atleast 12 months of history and spending more than 5000
+--Regular: atleast 12 months of history bu spending 5000 or less
+--New: lifespan less than 12 months
+
+
+
+With Cte as (
+select
+	Concat(First_name,' ',Last_Name) as Customer_Name,
+	Datediff(Month,Min(Order_Date) ,Max(Order_Date)) as Customer_Lifespan,
+	Sum(Sales_Amount) as 'Sales'
+From
+	gold.fact_sales a
+Left Join 
+	gold.dim_Customers b
+ON 
+	a.Customer_Key  = b.Customer_Key
+
+Group By
+	Concat(First_name,' ',Last_Name)),
+
+Cte1 as(		
+Select 
+	Customer_Name,
+	Customer_Lifespan,
+	Sales,
+	Case when Customer_Lifespan>=12 and Sales>5000 then 'VIP'
+		 When Customer_Lifespan>=12 and Sales<=5000 then'Regular'
+		 Else 'New'
+	End as Customer_Grp
+From 
+	Cte)
+
+Select 
+	Customer_Grp,
+	Count(*) as Total_Customers
+From 
+	Cte1
+Group By
+	Customer_Grp;
+	
+
+--Reporting
+
+--Highlights:
+--Gather Essential fields such as names,ages and transaction details
+
+--Segment Customrs into categories (VIP,Regular, New) and Age Group
+
+--Aggregate Customer Level Metrics:
+--total orders
+--total sales
+--total quantity purchased
+--total products
+--lifespan(in months)
+
+--Calculate valueable KPI:
+--recency (months since last order)
+--average order value
+--average monthly spend
+
+Create View Gold.Customer_Infomation as 
+With Base_Query as 
+(select 
+	order_number,
+	product_key,
+	order_Date,
+	Sales_Amount,
+	Quantity,
+	b.customer_key,
+	b.customer_Number,
+	Concat(First_name,' ',Last_Name) as Customer_Name,
+	DateDiff(Year,BirthDate,GetDAte()) as Age
+From 
+	Gold.Fact_sales a
+Left Join
+	gold.dim_customers b
+On	
+	a.customer_key = b.customer_key
+Where 
+	order_date is not null
+),
+
+Customer_Aggregation as 
+(Select
+	Customer_Name,
+	Age,
+	Customer_Key,
+	Customer_Number,
+	Count(Distinct Order_Number) as Total_Orders,
+	Sum(Sales_Amount) as Total_Sales,
+	Sum(Quantity) as Total_Quantity_Purchased,
+	Max(Order_Date) as Last_order_date,
+	Count(Distinct Product_Key) as Total_Products,
+	Datediff(Month,Min(order_Date),Max(order_date)) as Customer_Lifespan
+From 
+	base_query
+Group By 
+	Customer_Name,
+	Age,
+	Customer_Key,
+	Customer_Number)
+	
+
+Select
+	Customer_key,
+	Customer_Name,
+	Age,
+	Customer_Number,
+	Case when Customer_Lifespan>=12 and Total_Sales>5000 then 'VIP'
+		 When Customer_Lifespan>=12 and Total_Sales<=5000 then'Regular'
+		 Else 'New'
+	End as Customer_Grp,
+	Case when age < 20 then 'Under 20'
+		 when age between 20 and 29 then '20-29'
+		 when age between 30 and 39 then '30-39'
+		 when age between 40 and 49 then '40-49'
+		 else '50 and above'
+	End as 'Age_Grp',
+	Total_Orders,
+	Total_Sales,
+	Case When Total_orders = 0 Then 0 
+		 Else Total_Sales/Total_Orders 
+	End as Avg_Order_Value,
+	Case When Customer_LifeSpan = 0 Then Total_Sales
+		 Else Total_Sales/Customer_LifeSpan
+	End as Average_Monthly_Spent,	
+	Total_Quantity_Purchased,
+	Last_order_date,
+	Total_Products,
+	Customer_Lifespan,
+	DateDiff(Month,Last_order_date,getDate()) as Recency
+From
+	Customer_Aggregation;
